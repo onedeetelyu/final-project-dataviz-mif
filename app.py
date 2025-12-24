@@ -1,122 +1,175 @@
+# =========================================================
+# Bandung Weather Interactive Dashboard
+# =========================================================
+
 import streamlit as st
 import pandas as pd
-import numpy as np
-import plotly.express as px
+import altair as alt
 
 # =========================================================
 # CONFIG
 # =========================================================
 st.set_page_config(
-    page_title="Final Project - Data Visualization",
-    page_icon="📊",
-    layout="wide"
+    page_title="Bandung Weather Dashboard",
+    page_icon="🌦️",
+    layout="wide",
 )
 
 # =========================================================
-# TITLE & INTRO
-# =========================================================
-st.title("📊 Interactive Data Visualization Dashboard")
-st.markdown("""
-**Final Project – Visualisasi Data Interaktif**
-
-Dashboard ini dibuat untuk memenuhi tugas **Final Project** mata kuliah
-**Visualisasi Data**, dengan fokus pada:
-- eksplorasi data secara interaktif
-- analisis visual berbasis pengguna
-- penyajian insight yang mudah dipahami
-""")
-
-st.divider()
-
-# =========================================================
-# SIDEBAR
-# =========================================================
-st.sidebar.header("⚙️ Kontrol Interaktif")
-
-# Dummy pilihan (nanti bisa diganti sesuai dataset)
-selected_metric = st.sidebar.selectbox(
-    "Pilih metrik:",
-    ["Metrik A", "Metrik B", "Metrik C"]
-)
-
-year_range = st.sidebar.slider(
-    "Rentang tahun:",
-    2015, 2025, (2018, 2024)
-)
-
-# =========================================================
-# LOAD DATA (CONTOH)
+# LOAD DATA
 # =========================================================
 @st.cache_data
 def load_data():
-    # DATA CONTOH (nanti ganti dataset asli)
-    data = pd.DataFrame({
-        "Year": np.arange(2015, 2026),
-        "Value_A": np.random.randint(50, 100, 11),
-        "Value_B": np.random.randint(30, 80, 11),
-        "Value_C": np.random.randint(10, 60, 11)
-    })
-    return data
+    df = pd.read_csv("weather_bandung_2024_25.csv")
+
+    # Standarisasi nama kolom → lowercase + underscore
+    df.columns = (
+        df.columns
+        .str.strip()
+        .str.lower()
+        .str.replace(" ", "_")
+    )
+
+    # Parse tanggal
+    df["date"] = pd.to_datetime(df["date"])
+
+    return df
 
 df = load_data()
 
 # =========================================================
-# FILTER DATA
+# TITLE
 # =========================================================
-df_filtered = df[
-    (df["Year"] >= year_range[0]) &
-    (df["Year"] <= year_range[1])
-]
-
-# Mapping metric
-metric_map = {
-    "Metrik A": "Value_A",
-    "Metrik B": "Value_B",
-    "Metrik C": "Value_C"
-}
-
-metric_col = metric_map[selected_metric]
-
-# =========================================================
-# VISUALIZATION
-# =========================================================
-st.subheader("📈 Visualisasi Interaktif")
-
-fig = px.line(
-    df_filtered,
-    x="Year",
-    y=metric_col,
-    markers=True,
-    title=f"Perkembangan {selected_metric}"
-)
-
-fig.update_layout(
-    xaxis_title="Tahun",
-    yaxis_title=selected_metric,
-    hovermode="x unified"
-)
-
-st.plotly_chart(fig, use_container_width=True)
-
-# =========================================================
-# DATA TABLE (DETAILS ON DEMAND)
-# =========================================================
-with st.expander("📋 Lihat Data Tabel"):
-    st.dataframe(df_filtered, use_container_width=True)
-
-# =========================================================
-# INSIGHT SECTION
-# =========================================================
-st.subheader("🧠 Insight Singkat")
-
-st.write(f"""
-Berdasarkan visualisasi **{selected_metric}** pada rentang tahun
-**{year_range[0]}–{year_range[1]}**, terlihat adanya variasi nilai
-yang dapat dianalisis lebih lanjut oleh pengguna.
+st.title("🌦️ Bandung Weather Interactive Dashboard")
+st.markdown("""
+Dashboard ini menyajikan **visualisasi interaktif data cuaca Kota Bandung (2024–2025)**  
+berdasarkan data BMKG, dengan fokus pada:
+- eksplorasi tren cuaca
+- distribusi kategori cuaca
+- perbandingan antar waktu
 """)
 
-# =========================================================
-# FOOTER
-# =========================================================
 st.divider()
-st.caption("© Final Project Visualisasi Data | Streamlit Dashboard")
+
+# =========================================================
+# SIDEBAR FILTER
+# =========================================================
+st.sidebar.header("⚙️ Interactive Filters")
+
+years = sorted(df["date"].dt.year.unique())
+selected_years = st.sidebar.multiselect(
+    "Select year(s):",
+    years,
+    default=years
+)
+
+weather_types = sorted(df["weather_class"].dropna().unique())
+selected_weather = st.sidebar.multiselect(
+    "Select weather category:",
+    weather_types,
+    default=weather_types
+)
+
+filtered_df = df[
+    (df["date"].dt.year.isin(selected_years)) &
+    (df["weather_class"].isin(selected_weather))
+]
+
+if filtered_df.empty:
+    st.warning("No data available for selected filters.")
+    st.stop()
+
+# =========================================================
+# METRICS SUMMARY
+# =========================================================
+st.subheader("📊 Summary Statistics")
+
+cols = st.columns(4)
+
+cols[0].metric("Max Temperature (°C)", f"{df['temp_max'].max():.1f}")
+cols[1].metric("Min Temperature (°C)", f"{df['temp_min'].min():.1f}")
+cols[2].metric("Total Rainfall (mm)", f"{df['rain'].sum():.1f}")
+cols[3].metric("Avg Humidity (%)", f"{df['humidity'].mean():.1f}")
+
+st.divider()
+
+# =========================================================
+# TEMPERATURE RANGE CHART
+# =========================================================
+st.subheader("🌡️ Daily Temperature Range")
+
+temp_chart = (
+    alt.Chart(filtered_df)
+    .mark_bar(width=2)
+    .encode(
+        x=alt.X("date:T", title="Date"),
+        y=alt.Y("temp_max:Q", title="Temperature (°C)"),
+        y2="temp_min:Q",
+        color=alt.Color("date:T", timeUnit="year", title="Year"),
+        tooltip=["date", "temp_min", "temp_max"]
+    )
+    .interactive()
+)
+
+st.altair_chart(temp_chart, width='stretch')
+
+# =========================================================
+# WEATHER DISTRIBUTION
+# =========================================================
+st.subheader("☁️ Weather Category Distribution")
+
+weather_pie = (
+    alt.Chart(filtered_df)
+    .mark_arc()
+    .encode(
+        theta=alt.Theta("count():Q"),
+        color=alt.Color("weather_class:N", title="Weather"),
+        tooltip=["weather_class", "count()"]
+    )
+)
+
+st.altair_chart(weather_pie, width='stretch')
+
+# =========================================================
+# RAINFALL OVER TIME
+# =========================================================
+st.subheader("🌧️ Rainfall Over Time")
+
+rain_chart = (
+    alt.Chart(filtered_df)
+    .mark_line()
+    .encode(
+        x="date:T",
+        y=alt.Y("rain:Q", title="Rainfall (mm)"),
+        tooltip=["date", "rain"]
+    )
+    .interactive()
+)
+
+st.altair_chart(rain_chart, width='stretch')
+
+# =========================================================
+# MONTHLY WEATHER BREAKDOWN
+# =========================================================
+st.subheader("📅 Monthly Weather Breakdown")
+
+monthly_weather = (
+    alt.Chart(filtered_df)
+    .mark_bar()
+    .encode(
+        x=alt.X("month(date):O", title="Month"),
+        y=alt.Y("count():Q", title="Number of Days").stack("normalize"),
+        color=alt.Color("weather_class:N", title="Weather"),
+        tooltip=["weather_class", "count()"]
+    )
+)
+
+st.altair_chart(monthly_weather, width='stretch')
+
+# =========================================================
+# RAW DATA
+# =========================================================
+with st.expander("📋 View Raw Data"):
+    st.dataframe(filtered_df)
+
+st.caption("© Final Project Visualisasi Data | Bandung Weather Dashboard")
