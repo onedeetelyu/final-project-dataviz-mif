@@ -4,10 +4,11 @@
 
 import streamlit as st
 import pandas as pd
-import altair as alt
+import plotly.express as px
+import plotly.graph_objects as go
 
 # =========================================================
-# CONFIG
+# PAGE CONFIG
 # =========================================================
 st.set_page_config(
     page_title="Bandung Weather Dashboard",
@@ -22,7 +23,7 @@ st.set_page_config(
 def load_data():
     df = pd.read_csv("weather_bandung_2024_25.csv")
 
-    # Standarisasi nama kolom → lowercase + underscore
+    # Standardize column names
     df.columns = (
         df.columns
         .str.strip()
@@ -30,7 +31,7 @@ def load_data():
         .str.replace(" ", "_")
     )
 
-    # Parse tanggal
+    # Parse date
     df["date"] = pd.to_datetime(df["date"])
 
     return df
@@ -38,138 +39,500 @@ def load_data():
 df = load_data()
 
 # =========================================================
-# TITLE
+# TITLE & INTRO
 # =========================================================
-st.title("🌦️ Bandung Weather Interactive Dashboard")
+st.title("🌦️ Interactive Analysis of Daily Weather Patterns in Bandung (2024–2025)")
 st.markdown("""
-Dashboard ini menyajikan **visualisasi interaktif data cuaca Kota Bandung (2024–2025)**  
-berdasarkan data BMKG, dengan fokus pada:
-- eksplorasi tren cuaca
-- distribusi kategori cuaca
-- perbandingan antar waktu
+This dashboard presents **interactive visualizations of daily weather data for Bandung City (2024–2025)** based on observations from the **Indonesian Meteorological, Climatological, and Geophysical Agency (BMKG)**.
+
+"The dashboard emphasizes interpretability and interactive exploration rather than prediction."
+
+The visualization is designed to support **exploratory analysis** by combining time-series trends, rolling statistics, and variability indicators to help users better understand both **short-term fluctuations** and **longer-term patterns**.
+
+**Key objectives of this dashboard include:**
+- Exploring temporal trends of temperature, rainfall, wind speed, and humidity
+- Comparing multiple weather variables using dynamic rolling windows
+- Visualizing uncertainty through rolling averages and standard deviation bands
+- Analyzing the distribution and seasonality of weather categories interactively
+            
+💡 *Use the interactive controls (sliders, dropdowns, and hover tooltips) to customize the visualizations and reveal detailed insights.*
 """)
 
 st.divider()
 
 # =========================================================
-# SIDEBAR FILTER
+# SIDEBAR FILTERS
 # =========================================================
 st.sidebar.header("⚙️ Interactive Filters")
 
-years = sorted(df["date"].dt.year.unique())
-selected_years = st.sidebar.multiselect(
-    "Select year(s):",
-    years,
-    default=years
+# Date range slider (daily)
+date_range = st.sidebar.slider(
+    "Select date range:",
+    min_value=df["date"].min().date(),
+    max_value=df["date"].max().date(),
+    value=(df["date"].min().date(), df["date"].max().date())
 )
 
-weather_types = sorted(df["weather_class"].dropna().unique())
-selected_weather = st.sidebar.multiselect(
-    "Select weather category:",
-    weather_types,
-    default=weather_types
+WINDOW_OPTIONS = {
+    "1 day": 1,
+    "3 days": 3,
+    "7 days": 7,
+    "14 days": 14,
+    "30 days": 30,
+    # "90 days": 90,
+    # "365 days": 365,
+}
+
+selected_window_label = st.sidebar.radio(
+    "Select rolling window:",
+    list(WINDOW_OPTIONS.keys()),
+    index=3  # default 14 days
 )
 
-filtered_df = df[
-    (df["date"].dt.year.isin(selected_years)) &
-    (df["weather_class"].isin(selected_weather))
-]
+WINDOW_DAYS = WINDOW_OPTIONS[selected_window_label]
 
-if filtered_df.empty:
-    st.warning("No data available for selected filters.")
-    st.stop()
+# # Weather category filter
+# weather_options = df["weather_class"].unique().tolist()
+# selected_weather = st.sidebar.multiselect(
+#     "Select weather category:",
+#     weather_options,
+#     default=weather_options
+# )
 
 # =========================================================
-# METRICS SUMMARY
+# FILTER DATA
+# =========================================================
+df_filtered = df[
+    (df["date"].dt.date >= date_range[0]) &
+    (df["date"].dt.date <= date_range[1]) # &
+    # (df["weather_class"].isin(selected_weather))
+]
+
+# =========================================================
+# SUMMARY STATISTICS
 # =========================================================
 st.subheader("📊 Summary Statistics")
 
-cols = st.columns(4)
+selected_years = sorted(df_filtered["date"].dt.year.unique())
 
-cols[0].metric("Max Temperature (°C)", f"{df['temp_max'].max():.1f}")
-cols[1].metric("Min Temperature (°C)", f"{df['temp_min'].min():.1f}")
-cols[2].metric("Total Rainfall (mm)", f"{df['rain'].sum():.1f}")
-cols[3].metric("Avg Humidity (%)", f"{df['humidity'].mean():.1f}")
+cols = st.columns(6)
+
+# Hitung nilai utama
+max_temp = df_filtered["temp_max"].max()
+min_temp = df_filtered["temp_min"].min()
+avg_wind = df_filtered["wind_avg"].mean()
+avg_rain = df_filtered["rain"].mean()
+avg_humidity = df_filtered["humidity"].mean()
+
+# Jika hanya 1 tahun → TANPA delta
+if len(selected_years) == 1:
+    cols[0].metric(f"Record Max Temperature (°C) in {selected_years[0]}", f"{max_temp:.1f}")
+    cols[1].metric(f"Record Min Temperature (°C) in {selected_years[0]}", f"{min_temp:.1f}")
+    cols[2].metric(f"Average Wind (m/s) in {selected_years[0]}", f"{avg_wind:.2f}")
+    cols[3].metric(f"Average Rainfall (mm) in {selected_years[0]}", f"{avg_rain:.2f}")
+    cols[4].metric(f"Average Humidity (%) in {selected_years[0]}", f"{avg_humidity:.1f}")
+
+# Jika ≥ 2 tahun → PAKAI delta
+else:
+    y_curr, y_prev = selected_years[-1], selected_years[-2]
+
+    df_curr = df_filtered[df_filtered["date"].dt.year == y_curr]
+    df_prev = df_filtered[df_filtered["date"].dt.year == y_prev]
+
+    cols[0].metric(
+        f"Record Max Temperature (°C) in {y_curr}",
+        f"{df_curr['temp_max'].max():.1f}",
+        delta=f"{df_curr['temp_max'].max() - df_prev['temp_max'].max():+.1f} from {y_prev}"
+    )
+
+    cols[1].metric(
+        f"Record Min Temperature (°C) in {y_curr}",
+        f"{df_curr['temp_min'].min():.1f}",
+        delta=f"{df_curr['temp_min'].min() - df_prev['temp_min'].min():+.1f} from {y_prev}"
+    )
+
+    cols[2].metric(
+        f"Average Wind (m/s) in {y_curr}",
+        f"{df_curr['wind_avg'].mean():.2f}",
+        delta=f"{df_curr['wind_avg'].mean() - df_prev['wind_avg'].mean():+.2f} from {y_prev}"
+    )
+
+    cols[3].metric(
+        f"Average Rainfall (mm) in {y_curr}",
+        f"{df_curr['rain'].mean():.2f}",
+        delta=f"{df_curr['rain'].mean() - df_prev['rain'].mean():+.2f} from {y_prev}"
+    )
+
+    cols[4].metric(
+        f"Average Humidity (%) in {y_curr}",
+        f"{df_curr['humidity'].mean():.1f}",
+        delta=f"{df_curr['humidity'].mean() - df_prev['humidity'].mean():+.1f} from {y_prev}"
+    )
+
+weather_icons = {
+    "Sunny": "☀️",
+    "Partly Cloudy": "⛅",
+    "Cloudy": "☁️",
+    "Light Rain": "🌦️",
+    "Moderate Rain": "🌧️",
+    "Heavy Rain": "⛈️",
+}
+
+most_common_weather = df_filtered["weather_class"].value_counts().idxmax()
+
+cols[5].metric(
+    "Most Common Weather",
+    f"{weather_icons.get(most_common_weather, '🌤️')} {most_common_weather}"
+)
 
 st.divider()
 
 # =========================================================
-# TEMPERATURE RANGE CHART
+# VISUALIZATIONS
 # =========================================================
-st.subheader("🌡️ Daily Temperature Range")
+st.subheader("📊 Weather Visualizations")
 
-temp_chart = (
-    alt.Chart(filtered_df)
-    .mark_bar(width=2)
-    .encode(
-        x=alt.X("date:T", title="Date"),
-        y=alt.Y("temp_max:Q", title="Temperature (°C)"),
-        y2="temp_min:Q",
-        color=alt.Color("date:T", timeUnit="year", title="Year"),
-        tooltip=["date", "temp_min", "temp_max"]
-    )
-    .interactive()
+df_plot = df_filtered.copy()
+
+df_plot["month"] = df_plot["date"].dt.to_period("M").dt.to_timestamp()
+
+window_safe = min(WINDOW_DAYS, len(df_plot))
+
+# ---------- ROLLING COMPUTATIONS ----------
+df_plot = df_filtered.copy()
+
+# TEMPERATURE
+df_plot["temp_max_roll"] = (
+    df_plot["temp_max"]
+    .rolling(window=window_safe, min_periods=1)
+    .mean()
 )
 
-st.altair_chart(temp_chart, width='stretch')
-
-# =========================================================
-# WEATHER DISTRIBUTION
-# =========================================================
-st.subheader("☁️ Weather Category Distribution")
-
-weather_pie = (
-    alt.Chart(filtered_df)
-    .mark_arc()
-    .encode(
-        theta=alt.Theta("count():Q"),
-        color=alt.Color("weather_class:N", title="Weather"),
-        tooltip=["weather_class", "count()"]
-    )
+df_plot["temp_min_roll"] = (
+    df_plot["temp_min"]
+    .rolling(window=window_safe, min_periods=1)
+    .mean()
 )
 
-st.altair_chart(weather_pie, width='stretch')
-
-# =========================================================
-# RAINFALL OVER TIME
-# =========================================================
-st.subheader("🌧️ Rainfall Over Time")
-
-rain_chart = (
-    alt.Chart(filtered_df)
-    .mark_line()
-    .encode(
-        x="date:T",
-        y=alt.Y("rain:Q", title="Rainfall (mm)"),
-        tooltip=["date", "rain"]
-    )
-    .interactive()
+df_plot["temp_avg_roll"] = (
+    df_plot["temp_avg"]
+    .rolling(window=window_safe, min_periods=1)
+    .mean()
 )
 
-st.altair_chart(rain_chart, width='stretch')
+# WIND
+df_plot["wind_avg_roll"] = df_plot["wind_avg"].rolling(window_safe, 1).mean()
+df_plot["wind_std_roll"] = df_plot["wind_avg"].rolling(window_safe, 1).std()
 
-# =========================================================
-# MONTHLY WEATHER BREAKDOWN
-# =========================================================
-st.subheader("📅 Monthly Weather Breakdown")
+df_plot["wind_upper"] = df_plot["wind_avg_roll"] + df_plot["wind_std_roll"]
+df_plot["wind_lower"] = df_plot["wind_avg_roll"] - df_plot["wind_std_roll"]
 
-monthly_weather = (
-    alt.Chart(filtered_df)
-    .mark_bar()
-    .encode(
-        x=alt.X("month(date):O", title="Month"),
-        y=alt.Y("count():Q", title="Number of Days").stack("normalize"),
-        color=alt.Color("weather_class:N", title="Weather"),
-        tooltip=["weather_class", "count()"]
+# RAIN
+df_plot["rain_roll"] = df_plot["rain"].rolling(window_safe, 1).mean()
+df_plot["rain_std"] = df_plot["rain"].rolling(window_safe, 1).std()
+
+df_plot["rain_upper"] = df_plot["rain_roll"] + df_plot["rain_std"]
+df_plot["rain_lower"] = df_plot["rain_roll"] - df_plot["rain_std"]
+
+# HUMIDITY
+df_plot["hum_roll"] = df_plot["humidity"].rolling(window_safe, 1).mean()
+df_plot["hum_std"] = df_plot["humidity"].rolling(window_safe, 1).std()
+
+df_plot["hum_upper"] = df_plot["hum_roll"] + df_plot["hum_std"]
+df_plot["hum_lower"] = df_plot["hum_roll"] - df_plot["hum_std"]
+
+# MONTH
+df_plot["month"] = df_plot["date"].dt.month_name()
+
+COLORS = {
+    # 🔥 TEMPERATURE (Fire)
+    "temp_avg": "#B22222",                # Firebrick (deep red)
+    "temp_range": "rgba(178,34,34,0.25)", # soft red band
+
+    # 🌬️ WIND (Air – white blue)
+    "wind": "#6EC1E4",                    # light sky blue
+    "wind_band": "rgba(110,193,228,0.25)",
+
+    # 🌊 RAIN (Water – deep blue)
+    "rain": "#1F4E79",                    # strong blue
+    "rain_band": "rgba(31,78,121,0.25)",
+
+    # 🌿 HUMIDITY (Earth/Plant – green)
+    "humidity": "#2E8B57",                # sea green
+    "humidity_band": "rgba(46,139,87,0.25)",
+}
+
+WEATHER_COLORS = {
+    "Sunny": "#FDB813",           # warm yellow (sun)
+    "Partly Cloudy": "#B3DDF2",   # soft sky blue
+    "Cloudy": "#9E9E9E",          # neutral gray
+    "Light Rain": "#6EC1E4",      # light blue rain
+    "Moderate Rain": "#2F80ED",   # strong blue
+    "Heavy Rain": "#1C3F95",      # deep navy (not black)
+}
+
+# ---------- ROW 1 ----------
+col1, col2 = st.columns(2)
+
+with col1:
+    fig = go.Figure()
+
+    # Temperature max
+    fig.add_trace(
+        go.Scatter(
+            x=df_plot["date"],
+            y=df_plot["temp_max_roll"],
+            mode="lines",
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo="skip"
+        )
     )
-)
 
-st.altair_chart(monthly_weather, width='stretch')
+    # Temperature min (range)
+    fig.add_trace(
+        go.Scatter(
+            x=df_plot["date"],
+            y=df_plot["temp_min_roll"],
+            mode="lines",
+            fill="tonexty",
+            fillcolor=COLORS["temp_range"],
+            line=dict(width=0),
+            name="Temperature Range (Rolling Min–Max)",
+            customdata=df_plot["temp_max_roll"],
+            hovertemplate=
+            "<b>Max Temp:</b> %{customdata:.1f} °C<br>" +
+            "<b>Min Temp:</b> %{y:.1f} °C" +
+            "<extra></extra>"
+        )
+    )
 
+    # Average temperature
+    fig.add_trace(
+        go.Scatter(
+            x=df_plot["date"],
+            y=df_plot["temp_avg_roll"],
+            mode="lines",
+            line=dict(color=COLORS["temp_avg"], width=2),
+            name=f"Rolling Avg",
+            hovertemplate=
+            "<b>Avg Temp:</b> %{y:.1f}°C" +
+            "<extra></extra>"
+        )
+    )
+
+    # fig.add_hline(
+    #     y=27,
+    #     line_dash="dot",
+    #     line_color="gray",
+    #     annotation_text="Typical Comfort Upper Limit (27°C)",
+    #     annotation_position="top left"
+    # )
+
+    fig.update_layout(
+        height=400,
+        hovermode="x unified",
+        template="plotly_white",
+        xaxis_title="Date",
+        yaxis_title="Temperature (°C)",
+        legend=dict(orientation="h", y=-0.25, x=0.5, xanchor="center"),
+        title=f"Temperature ({WINDOW_DAYS}-Day Rolling Avg and Range)",  
+    )
+
+    st.plotly_chart(fig, width='content')
+
+with col2:
+    fig_wind = go.Figure()
+
+    fig_wind.add_trace(go.Scatter(
+        x=df_plot["date"], y=df_plot["wind_upper"],
+        line=dict(width=0), showlegend=False, hoverinfo="skip"
+    ))
+
+    fig_wind.add_trace(go.Scatter(
+        x=df_plot["date"], y=df_plot["wind_lower"],
+        fill="tonexty",
+        fillcolor=COLORS["wind_band"],
+        line=dict(width=0),
+        name="±1 Std Dev",
+        hoverinfo="skip"
+    ))
+
+    fig_wind.add_trace(
+        go.Scatter(
+            x=df_plot["date"],
+            y=df_plot["wind_avg_roll"],
+            mode="lines",
+            line=dict(color=COLORS["wind"], width=2),
+            name="Rolling Avg Wind",
+            customdata=df_plot["wind_std_roll"],
+            hovertemplate=
+            "<b>Avg Wind:</b> %{y:.2f} m/s<br>" +
+            "<b>Std Dev:</b> %{customdata:.2f} m/s" +
+            "<extra></extra>"
+        )
+    )
+
+    fig_wind.update_layout(
+        height=400,
+        hovermode="x unified",
+        template="plotly_white",
+        legend=dict(orientation="h", y=-0.25, x=0.5, xanchor="center"),
+        xaxis_title="Date",
+        yaxis_title="Wind Speed (m/s)",
+        title=f"Wind Speed ({WINDOW_DAYS}-Day Rolling Avg ± 1 Std)",        
+    )
+
+    st.plotly_chart(fig_wind, width='content')
+
+# ---------- ROW 2 ----------
+col3, col4 = st.columns(2)
+
+with col3:
+    fig_rain = go.Figure()
+
+    fig_rain.add_trace(go.Scatter(
+        x=df_plot["date"], y=df_plot["rain_upper"],
+        line=dict(width=0), showlegend=False, hoverinfo="skip"
+    ))
+
+    fig_rain.add_trace(go.Scatter(
+        x=df_plot["date"], y=df_plot["rain_lower"],
+        fill="tonexty",
+        fillcolor=COLORS["rain_band"],
+        line=dict(width=0),
+        name="±1 Std Dev",
+        hoverinfo="skip"
+    ))
+
+    fig_rain.add_trace(
+        go.Scatter(
+            x=df_plot["date"],
+            y=df_plot["rain_roll"],
+            mode="lines",
+            line=dict(color=COLORS["rain"], width=2),
+            name="Rolling Avg Rain",
+            customdata=df_plot["rain_std"],
+            hovertemplate=
+            "<b>Avg Rain:</b> %{y:.2f} mm<br>" +
+            "<b>Std Dev:</b> %{customdata:.2f} mm" +
+            "<extra></extra>"
+        )
+    )
+
+    fig_rain.update_layout(
+        height=400,
+        hovermode="x unified",
+        template="plotly_white",
+        legend=dict(orientation="h", y=-0.25, x=0.5, xanchor="center"),
+        xaxis_title="Date",
+        yaxis_title="Rainfall (mm)",
+        title=f"Rainfall ({WINDOW_DAYS}-Day Rolling Avg ± 1 Std)",
+    )
+
+    st.plotly_chart(fig_rain, width='content')
+
+with col4:
+    fig_hum = go.Figure()
+
+    fig_hum.add_trace(go.Scatter(
+        x=df_plot["date"], y=df_plot["hum_upper"],
+        line=dict(width=0), showlegend=False, hoverinfo="skip"
+    ))
+
+    fig_hum.add_trace(go.Scatter(
+        x=df_plot["date"], y=df_plot["hum_lower"],
+        fill="tonexty",
+        fillcolor=COLORS["humidity_band"],
+        line=dict(width=0),
+        name="±1 Std Dev",
+        hoverinfo="skip"
+    ))
+
+    fig_hum.add_trace(
+        go.Scatter(
+            x=df_plot["date"],
+            y=df_plot["hum_roll"],
+            mode="lines",
+            line=dict(color=COLORS["humidity"], width=2),
+            name="Rolling Avg Humidity",
+            customdata=df_plot["hum_std"],
+            hovertemplate=
+            "<b>Avg Humidity:</b> %{y:.1f} %<br>" +
+            "<b>Std Dev:</b> %{customdata:.1f} %" +
+            "<extra></extra>"
+        )
+    )
+
+    # fig_hum.add_hline(y=80, line_dash="dot", line_color="gray")
+
+    fig_hum.update_layout(
+        height=400,
+        hovermode="x unified",
+        template="plotly_white",
+        legend=dict(orientation="h", y=-0.25, x=0.5, xanchor="center"),
+        xaxis_title="Date",
+        yaxis_title="Humidity (%)",
+        title=f"Humidity ({WINDOW_DAYS}-Day Rolling Avg ± 1 Std)",
+    )
+
+    st.plotly_chart(fig_hum, width='content')
+
+# ---------- ROW 3 ----------
+col5, col6 = st.columns(2)
+
+with col5:
+    fig_weather = px.pie(
+        df_plot,
+        names="weather_class",
+        color="weather_class",
+        color_discrete_map=WEATHER_COLORS,
+        title="Weather Category Distribution"
+    )
+
+    fig_weather.update_layout(
+        height=400, 
+        legend=dict(orientation="h", y=-0.25, x=0.5, xanchor="center")
+    )
+
+    st.plotly_chart(fig_weather, width='content')
+
+with col6:
+    fig_month = px.histogram(
+        df_plot,
+        x="month",
+        color="weather_class",
+        color_discrete_map=WEATHER_COLORS,
+        barmode="stack",
+        barnorm="percent",
+        category_orders={
+            "month": [
+                "January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"
+            ]
+        },
+        labels={"month": "Month", "count": "Percentage (%)"},
+        title="Monthly Weather Distribution (Percentage)",
+    )
+
+    fig_month.update_layout(
+        height=400,
+        yaxis_title="Percentage of Days (%)",
+        legend_title="Weather Class",
+        legend=dict(orientation="h", y=-0.25, x=0.5, xanchor="center")
+    )
+
+    st.plotly_chart(fig_month, width='content')
+
+st.divider()
 # =========================================================
 # RAW DATA
 # =========================================================
 with st.expander("📋 View Raw Data"):
-    st.dataframe(filtered_df)
+    st.dataframe(df_filtered, width='content')
 
-st.caption("© Final Project Visualisasi Data | Bandung Weather Dashboard")
+st.divider()
+# =========================================================
+# FOOTER
+# =========================================================
+st.caption("© Final Project – Data Visualization | Made by Wandi Yusuf Kurniawan - 203012320013 | 2026")

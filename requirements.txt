@@ -1,3 +1,7 @@
-streamlit
-pandas
-altair
+streamlit>=1.32
+pandas>=1.5
+numpy>=1.23
+plotly>=5.18
+requests>=2.31
+prophet>=1.1
+scikit-learn>=1.3
