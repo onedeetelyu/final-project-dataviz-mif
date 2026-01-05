@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # =========================================================
 # PAGE CONFIG
@@ -41,7 +42,8 @@ df = load_data()
 # =========================================================
 # TITLE & INTRO
 # =========================================================
-st.title("🌦️ Interactive Analysis of Daily Weather Patterns in Bandung (2024–2025)")
+# st.title("🌦️ Interactive Analysis of Daily Weather Patterns in Bandung (2024–2025)")
+st.title("🌦️ Bandung Weather Interactive Dashboard: Exploratory Analysis (2024-25)")
 st.markdown("""
 This dashboard presents **interactive visualizations of daily weather data for Bandung City (2024–2025)** based on observations from the **Indonesian Meteorological, Climatological, and Geophysical Agency (BMKG)**.
 
@@ -73,23 +75,38 @@ date_range = st.sidebar.slider(
     value=(df["date"].min().date(), df["date"].max().date())
 )
 
-WINDOW_OPTIONS = {
-    "1 day": 1,
-    "3 days": 3,
-    "7 days": 7,
-    "14 days": 14,
-    "30 days": 30,
-    # "90 days": 90,
-    # "365 days": 365,
+# WINDOW_OPTIONS = {
+#     "1 day": 1,
+#     "3 days": 3,
+#     "7 days": 7,
+#     "14 days": 14,
+#     "30 days": 30,
+#     # "90 days": 90,
+#     # "365 days": 365,
+# }
+
+# selected_window_label = st.sidebar.radio(
+#     "Select rolling window:",
+#     list(WINDOW_OPTIONS.keys()),
+#     index=3  # default 14 days
+# )
+
+# WINDOW_DAYS = WINDOW_OPTIONS[selected_window_label]
+
+WINDOW_LABELS = {
+    1: "Daily",
+    3: "3-Day Avg",
+    7: "Weekly Avg",
+    14: "Bi-Weekly Avg",
+    30: "Monthly Avg",
 }
 
-selected_window_label = st.sidebar.radio(
-    "Select rolling window:",
-    list(WINDOW_OPTIONS.keys()),
-    index=3  # default 14 days
+WINDOW_DAYS = st.sidebar.radio(
+    "Rolling Averaging Window",
+    options=[1, 3, 7, 14, 30],
+    format_func=lambda x: WINDOW_LABELS[x],
+    horizontal=False
 )
-
-WINDOW_DAYS = WINDOW_OPTIONS[selected_window_label]
 
 # # Weather category filter
 # weather_options = df["weather_class"].unique().tolist()
@@ -120,7 +137,8 @@ cols = st.columns(6)
 # Hitung nilai utama
 max_temp = df_filtered["temp_max"].max()
 min_temp = df_filtered["temp_min"].min()
-avg_wind = df_filtered["wind_avg"].mean()
+# avg_wind = df_filtered["wind_avg"].mean()
+avg_max_wind = df_filtered["wind_max"].mean()
 avg_rain = df_filtered["rain"].mean()
 avg_humidity = df_filtered["humidity"].mean()
 
@@ -128,7 +146,8 @@ avg_humidity = df_filtered["humidity"].mean()
 if len(selected_years) == 1:
     cols[0].metric(f"Record Max Temperature (°C) in {selected_years[0]}", f"{max_temp:.1f}")
     cols[1].metric(f"Record Min Temperature (°C) in {selected_years[0]}", f"{min_temp:.1f}")
-    cols[2].metric(f"Average Wind (m/s) in {selected_years[0]}", f"{avg_wind:.2f}")
+    # cols[2].metric(f"Average Wind (m/s) in {selected_years[0]}", f"{avg_wind:.2f}")
+    cols[2].metric(f"Average Max Wind (m/s) in {selected_years[0]}", f"{avg_max_wind:.2f}")
     cols[3].metric(f"Average Rainfall (mm) in {selected_years[0]}", f"{avg_rain:.2f}")
     cols[4].metric(f"Average Humidity (%) in {selected_years[0]}", f"{avg_humidity:.1f}")
 
@@ -151,10 +170,16 @@ else:
         delta=f"{df_curr['temp_min'].min() - df_prev['temp_min'].min():+.1f} from {y_prev}"
     )
 
+    # cols[2].metric(
+    #     f"Average Wind (m/s) in {y_curr}",
+    #     f"{df_curr['wind_avg'].mean():.2f}",
+    #     delta=f"{df_curr['wind_avg'].mean() - df_prev['wind_avg'].mean():+.2f} from {y_prev}"
+    # )
+
     cols[2].metric(
-        f"Average Wind (m/s) in {y_curr}",
-        f"{df_curr['wind_avg'].mean():.2f}",
-        delta=f"{df_curr['wind_avg'].mean() - df_prev['wind_avg'].mean():+.2f} from {y_prev}"
+        f"Record Max Wind (m/s) in {y_curr}",
+        f"{df_curr['wind_max'].mean():.2f}",
+        delta=f"{df_curr['wind_max'].mean() - df_prev['wind_max'].mean():+.2f} from {y_prev}"
     )
 
     cols[3].metric(
@@ -221,11 +246,17 @@ df_plot["temp_avg_roll"] = (
 )
 
 # WIND
-df_plot["wind_avg_roll"] = df_plot["wind_avg"].rolling(window_safe, 1).mean()
-df_plot["wind_std_roll"] = df_plot["wind_avg"].rolling(window_safe, 1).std()
+# df_plot["wind_avg_roll"] = df_plot["wind_avg"].rolling(window_safe, 1).mean()
+# df_plot["wind_std_roll"] = df_plot["wind_avg"].rolling(window_safe, 1).std()
 
-df_plot["wind_upper"] = df_plot["wind_avg_roll"] + df_plot["wind_std_roll"]
-df_plot["wind_lower"] = df_plot["wind_avg_roll"] - df_plot["wind_std_roll"]
+# df_plot["wind_upper"] = df_plot["wind_avg_roll"] + df_plot["wind_std_roll"]
+# df_plot["wind_lower"] = df_plot["wind_avg_roll"] - df_plot["wind_std_roll"]
+
+df_plot["wind_max_avg_roll"] = df_plot["wind_max"].rolling(window_safe, 1).mean()
+df_plot["wind_max_std_roll"] = df_plot["wind_max"].rolling(window_safe, 1).std()
+
+df_plot["wind_upper"] = df_plot["wind_max_avg_roll"] + df_plot["wind_max_std_roll"]
+df_plot["wind_lower"] = df_plot["wind_max_avg_roll"] - df_plot["wind_max_std_roll"]
 
 # RAIN
 df_plot["rain_roll"] = df_plot["rain"].rolling(window_safe, 1).mean()
@@ -298,7 +329,7 @@ with col1:
             fill="tonexty",
             fillcolor=COLORS["temp_range"],
             line=dict(width=0),
-            name="Temperature Range (Rolling Min–Max)",
+            name="Rolling Temp Range (Min–Max)",
             customdata=df_plot["temp_max_roll"],
             hovertemplate=
             "<b>Max Temp:</b> %{customdata:.1f} °C<br>" +
@@ -314,20 +345,29 @@ with col1:
             y=df_plot["temp_avg_roll"],
             mode="lines",
             line=dict(color=COLORS["temp_avg"], width=2),
-            name=f"Rolling Avg",
+            name=f"Rolling Avg Temp",
             hovertemplate=
             "<b>Avg Temp:</b> %{y:.1f}°C" +
             "<extra></extra>"
         )
     )
 
-    # fig.add_hline(
-    #     y=27,
-    #     line_dash="dot",
-    #     line_color="gray",
-    #     annotation_text="Typical Comfort Upper Limit (27°C)",
-    #     annotation_position="top left"
-    # )
+    def comfort_line(fig, y, label):
+        fig.add_hline(
+            y=y,
+            line_dash="dot",
+            line_color="gray",
+            annotation_text=label,
+            annotation_position="top right",
+            annotation=dict(
+                font=dict(color="rgba(255,255,255,0.4)", size=10)
+            )
+        )
+
+    comfort_line(fig, 35, "Sweltering")
+    comfort_line(fig, 29, "Hot")
+    comfort_line(fig, 24, "Warm")
+    comfort_line(fig, 18, "Comfortable")
 
     fig.update_layout(
         height=400,
@@ -361,26 +401,48 @@ with col2:
     fig_wind.add_trace(
         go.Scatter(
             x=df_plot["date"],
-            y=df_plot["wind_avg_roll"],
+            y=df_plot["wind_max_avg_roll"],
             mode="lines",
             line=dict(color=COLORS["wind"], width=2),
-            name="Rolling Avg Wind",
-            customdata=df_plot["wind_std_roll"],
+            name="Rolling Avg Max Wind",
+            customdata=df_plot["wind_max_std_roll"],
             hovertemplate=
-            "<b>Avg Wind:</b> %{y:.2f} m/s<br>" +
+            "<b>Avg Max Wind:</b> %{y:.2f} m/s<br>" +
             "<b>Std Dev:</b> %{customdata:.2f} m/s" +
             "<extra></extra>"
         )
     )
 
+    def wind_levels(fig_wind):
+        levels = [
+            (1.5, "Calm"),
+            (3.3, "Breeze"),
+            (5.5, "Fresh Breeze"),
+            (8.0, "Strong Wind"),
+        ]
+
+        for y, label in levels:
+            fig_wind.add_hline(
+                y=y,
+                line_dash="dot",
+                line_color="gray",
+                annotation_text=label,
+                annotation_position="top right",
+                annotation=dict(
+                    font=dict(color="rgba(255,255,255,0.4)", size=10)
+                )
+            )
+
+    wind_levels(fig_wind)
+    
     fig_wind.update_layout(
         height=400,
         hovermode="x unified",
         template="plotly_white",
         legend=dict(orientation="h", y=-0.25, x=0.5, xanchor="center"),
         xaxis_title="Date",
-        yaxis_title="Wind Speed (m/s)",
-        title=f"Wind Speed ({WINDOW_DAYS}-Day Rolling Avg ± 1 Std)",        
+        yaxis_title="Max Wind Speed (m/s)",
+        title=f"Max Wind Speed ({WINDOW_DAYS}-Day Rolling Avg ± 1 Std)",        
     )
 
     st.plotly_chart(fig_wind, width='content')
@@ -419,6 +481,27 @@ with col3:
             "<extra></extra>"
         )
     )
+
+    def rain_levels(fig_rain):
+        levels = [
+            (5, "Light Rain"),
+            (20, "Moderate Rain"),
+            (50, "Heavy Rain"),
+        ]
+
+        for y, label in levels:
+            fig_rain.add_hline(
+                y=y,
+                line_dash="dot",
+                line_color="gray",
+                annotation_text=label,
+                annotation_position="top right",
+                annotation=dict(
+                    font=dict(color="rgba(255,255,255,0.4)", size=10)
+                )
+            )
+
+    rain_levels(fig_rain)
 
     fig_rain.update_layout(
         height=400,
@@ -464,7 +547,27 @@ with col4:
         )
     )
 
-    # fig_hum.add_hline(y=80, line_dash="dot", line_color="gray")
+    def humidity_levels(fig_hum):
+        levels = [
+            (60, "Dry"),
+            (75, "Comfort"),
+            (85, "Humid"),
+            (90, "Very Humid"),
+        ]
+
+        for y, label in levels:
+            fig_hum.add_hline(
+                y=y,
+                line_dash="dot",
+                line_color="gray",
+                annotation_text=label,
+                annotation_position="top right",
+                annotation=dict(
+                    font=dict(color="rgba(255,255,255,0.4)", size=10)
+                )
+            )
+
+    humidity_levels(fig_hum)
 
     fig_hum.update_layout(
         height=400,
